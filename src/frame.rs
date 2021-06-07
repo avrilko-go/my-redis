@@ -2,6 +2,8 @@ use bytes::{Bytes, Buf};
 use std::io::Cursor;
 use std::fmt;
 use std::fmt::Formatter;
+use std::convert::TryInto;
+use std::num::TryFromIntError;
 
 #[derive(Debug, Clone)]
 pub enum Frame {
@@ -24,18 +26,44 @@ impl Frame {
         match get_u8(src)? {
             b'+' => { // 单行字符串
                 get_line(src)?;
-                return Ok(());
+                Ok(())
+            }
+            b'$' => { // 多行字符串
+                // 首先判断是不是Null -1\r\n (4个u8)
+                if b'-' == peek_u8(src)? {
+                    skip(src, 4)
+                } else {
+                    // 获取长度
+                    let len: usize = get_decimal(src)?.try_into()?;
+                    skip(src, len + 2)
+                }
+            }
+            b':' => { // 数字
+                get_decimal(src)?;
+                Ok(())
+            }
+            b'-' => { // 错误消息
+                get_line(src)?;
+                Ok(())
+            }
+            b'*' => { // 数组
+                // 获取数组长度
+                let len: usize = get_decimal(src)?.try_into()?;
+
+                for _i in 0..len {
+                    Frame::check(src)?;
+                }
+                Ok(())
             }
             actual => {
                 return Err(format!("非法的redis协议，非法字符 {}", actual).into());
             }
         }
-        Ok(())
     }
 }
 
 // 这个函数返回一个[u8]的引用，需要确定其的生命周期
-pub fn get_line<'a>(mut src: &mut Cursor<&'a [u8]>) -> Result<&'a [u8], Error> {
+pub fn get_line<'a>(src: &mut Cursor<&'a [u8]>) -> Result<&'a [u8], Error> {
     // redis 一行是以\r\n结束的
     let start = src.position() as usize;
     // 只用循环到倒数第二个
@@ -50,7 +78,7 @@ pub fn get_line<'a>(mut src: &mut Cursor<&'a [u8]>) -> Result<&'a [u8], Error> {
     Err(Error::Incomplete)
 }
 
-pub fn get_u8(mut src: &mut Cursor<&[u8]>) -> Result<u8, Error> {
+pub fn get_u8(src: &mut Cursor<&[u8]>) -> Result<u8, Error> {
     if !src.has_remaining() {
         // 读不出内容了
         return Err(Error::Incomplete);
@@ -58,6 +86,29 @@ pub fn get_u8(mut src: &mut Cursor<&[u8]>) -> Result<u8, Error> {
 
     // 这个函数读出u8后会丢弃buff中读出那个u8
     Ok(src.get_u8())
+}
+
+pub fn peek_u8(src: &mut Cursor<&[u8]>) -> Result<u8, Error> {
+    if !src.has_remaining() {
+        // 读不出内容了
+        return Err(Error::Incomplete);
+    }
+
+    Ok(src.chunk()[0])
+}
+
+pub fn get_decimal(src: &mut Cursor<&[u8]>) -> Result<u64, Error> {
+    use atoi::atoi;
+    let line = get_line(src)?;
+    atoi::<u64>(line).ok_or_else(|| "protocol error; invalid frame format".into())
+}
+
+pub fn skip(src: &mut Cursor<&[u8]>, n: usize) -> Result<(), Error> {
+    if src.remaining() < n {
+        return Err(Error::Incomplete);
+    }
+    src.advance(n);
+    Ok(())
 }
 
 impl From<String> for Error {
@@ -84,5 +135,11 @@ impl fmt::Display for Error {
                 err.fmt(fmt)
             }
         }
+    }
+}
+
+impl From<TryFromIntError> for Error {
+    fn from(_src: TryFromIntError) -> Self {
+        "protocol error; invalid frame format".into()
     }
 }

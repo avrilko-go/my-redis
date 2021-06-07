@@ -1,7 +1,7 @@
 use crate::frame::Frame;
 use tokio::io::{BufWriter, AsyncReadExt};
 use tokio::net::TcpStream;
-use bytes::BytesMut;
+use bytes::{BytesMut, Buf};
 use std::io::Cursor;
 
 pub struct Connection {
@@ -34,30 +34,25 @@ impl Connection {
                 };
             }
         }
-
-
-        Ok(Some(Frame::Null))
     }
 
     pub fn parse_frame(&mut self) -> crate::Result<Option<Frame>> {
         use crate::frame::Error;
-
         // 新建一个游标
         let mut buff = Cursor::new(&self.buffer[..]);
-
-        match Frame::check(&mut buff) {
-            Ok(_) => {}
+        return match Frame::check(&mut buff) {
+            Ok(_) => {
+                todo!(); // todo 解析成Frame
+                Ok(Some(Frame::Simple(String::from("hbhb"))))
+            }
             Err(Error::Incomplete) => {
                 // 代表本次读取不完整，需要等到下次
-                return Ok(None);
+                Ok(None)
             }
             Err(err) => {
                 // 读取真正出现了错误
-                return Err(err.into());
+                Err(err.into())
             }
-        }
-
-
-        Ok(Some(Frame::Null))
+        };
     }
 }
