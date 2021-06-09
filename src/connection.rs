@@ -42,8 +42,17 @@ impl Connection {
         let mut buff = Cursor::new(&self.buffer[..]);
         return match Frame::check(&mut buff) {
             Ok(_) => {
-                todo!(); // todo 解析成Frame
-                Ok(Some(Frame::Simple(String::from("hbhb"))))
+                // 检测完毕后得到一个完整帧的长度
+                let len = buff.position() as usize;
+
+                // 将游标设置为0开始读取
+                buff.set_position(0);
+
+                // 开始解析
+                let frame = Frame::parse(&mut buff)?;
+
+                self.buffer.advance(len);
+                Ok(Some(frame))
             }
             Err(Error::Incomplete) => {
                 // 代表本次读取不完整，需要等到下次

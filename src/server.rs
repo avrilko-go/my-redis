@@ -90,7 +90,6 @@ impl Handler {
                     return Ok(())
                 }
             };
-            println!("{:?}", maybe_frame);
             let frame = match maybe_frame {
                 Some(frame) => frame,
                 None => return Ok(()),

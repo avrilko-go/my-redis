@@ -4,6 +4,7 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::convert::TryInto;
 use std::num::TryFromIntError;
+use std::string::FromUtf8Error;
 
 #[derive(Debug, Clone)]
 pub enum Frame {
@@ -57,6 +58,58 @@ impl Frame {
             }
             actual => {
                 return Err(format!("非法的redis协议，非法字符 {}", actual).into());
+            }
+        }
+    }
+
+    pub fn parse(src: &mut Cursor<&[u8]>) -> Result<Frame, Error> {
+        match get_u8(src)? {
+            b'+' => { // 单行字符串
+                let line = get_line(src)?.to_vec();
+                let str = String::from_utf8(line)?;
+                Ok(Frame::Simple(str))
+            }
+            b'$' => { // 多行字符串
+                let len = get_decimal(src)?.try_into()?;
+                let n = len + 2; // \r\n
+
+                if src.remaining() < n {
+                    return Err(Error::Incomplete);
+                }
+
+                let bytes = Bytes::copy_from_slice(&src.chunk()[..len]);
+                skip(src, n)?;
+                Ok(Frame::Bulk(bytes))
+            }
+            b':' => {
+                let d = get_decimal(src)?;
+                Ok(Frame::Integer(d))
+            }
+            b'-' => {
+                let data = get_line(src)?.to_vec();
+                let err_msg = String::from_utf8(data)?;
+                Ok(Frame::Error(err_msg))
+            }
+            b'*' => {
+                if b'-' == peek_u8(src)? {
+                    let line = get_line(src)?;
+                    if line != b"-1" {
+                        return Err("protocol error; invalid frame format".into());
+                    }
+                    Ok(Frame::Null)
+                } else {
+                    let len = get_decimal(src)?;
+
+                    let mut arr = vec![];
+                    for _i in 0..len {
+                        let c = Frame::parse(src)?;
+                        arr.push(c);
+                    }
+                    Ok(Frame::Array(arr))
+                }
+            }
+            actual => {
+                Err(format!("非法的redis协议，非法字符 {}", actual).into())
             }
         }
     }
@@ -140,6 +193,12 @@ impl fmt::Display for Error {
 
 impl From<TryFromIntError> for Error {
     fn from(_src: TryFromIntError) -> Self {
+        "protocol error; invalid frame format".into()
+    }
+}
+
+impl From<FromUtf8Error> for Error {
+    fn from(_: FromUtf8Error) -> Self {
         "protocol error; invalid frame format".into()
     }
 }

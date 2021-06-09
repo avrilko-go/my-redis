@@ -10,6 +10,8 @@ pub mod frame;
 
 pub mod cmd;
 
+pub mod parse;
+
 // 默认端口
 pub const DEFAULT_PORT: &str = "6379";
 
