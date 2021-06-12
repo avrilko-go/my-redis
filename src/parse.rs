@@ -72,6 +72,14 @@ impl Parse {
             frame => Err(format!("protocol error; expected int frame but got {:?}", frame).into()),
         }
     }
+
+    pub fn finish(&mut self) -> Result<(), ParseError> {
+        if self.parts.next().is_none() {
+            Ok(())
+        } else {
+            Err("protocol error; expected end of frame, but there was more".into())
+        }
+    }
 }
 
 impl std::error::Error for ParseError {}

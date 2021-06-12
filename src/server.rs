@@ -98,7 +98,6 @@ impl Handler {
 
             // 处理Frame消息
             let cmd = Command::from_frame(frame)?;
-
             // 打印cmd并将错误传递到外层
             debug!(?cmd);
 
